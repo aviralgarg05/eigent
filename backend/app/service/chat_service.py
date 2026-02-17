@@ -46,6 +46,9 @@ from camel.types import ModelPlatformType
 from camel.models import ModelProcessingError
 from utils import traceroot_wrapper as traceroot
 import os
+import time
+
+from app.utils.perf_timer import PerfTimer
 
 logger = traceroot.get_logger("chat_service")
 
@@ -244,6 +247,7 @@ async def step_solve(options: Chat, request: Request, task_lock: TaskLock):
     #         faulthandler.dump_traceback_later(second)
 
     start_event_loop = True
+    _session_start = time.perf_counter()
 
     if not hasattr(task_lock, 'conversation_history'):
         task_lock.conversation_history = []
@@ -346,7 +350,8 @@ async def step_solve(options: Chat, request: Request, task_lock: TaskLock):
                     logger.info(f"[NEW-QUESTION] Has attachments, treating as complex task")
                 else:
                     logger.info(f"[NEW-QUESTION] Calling question_confirm to determine complexity")
-                    is_complex_task = await question_confirm(question_agent, question, task_lock)
+                    with PerfTimer("question_confirm", project_id=options.project_id):
+                        is_complex_task = await question_confirm(question_agent, question, task_lock)
                     logger.info(f"[NEW-QUESTION] question_confirm result: is_complex={is_complex_task}")
 
                 if not is_complex_task:
@@ -407,7 +412,8 @@ async def step_solve(options: Chat, request: Request, task_lock: TaskLock):
                         # Workforce is already stopped from skip_task, ready for new decomposition
                     else:
                         logger.info(f"[NEW-QUESTION] 🏭 Creating NEW workforce instance (workforce=None)")
-                        (workforce, mcp) = await construct_workforce(options)
+                        with PerfTimer("construct_workforce", project_id=options.project_id):
+                            (workforce, mcp) = await construct_workforce(options)
                         logger.info(f"[NEW-QUESTION] ✅ NEW Workforce instance created, id={id(workforce)}")
                         for new_agent in options.new_agents:
                             workforce.add_single_agent_worker(
@@ -478,13 +484,14 @@ async def step_solve(options: Chat, request: Request, task_lock: TaskLock):
                     async def run_decomposition():
                         nonlocal camel_task, summary_task_content
                         try:
-                            sub_tasks = await asyncio.to_thread(
-                                workforce.eigent_make_sub_tasks,
-                                camel_task,
-                                context_for_coordinator,
-                                on_stream_batch,
-                                on_stream_text,
-                            )
+                            with PerfTimer("task_decomposition", project_id=options.project_id, task_id=options.task_id):
+                                sub_tasks = await asyncio.to_thread(
+                                    workforce.eigent_make_sub_tasks,
+                                    camel_task,
+                                    context_for_coordinator,
+                                    on_stream_batch,
+                                    on_stream_text,
+                                )
                             if stream_state["subtasks"]:
                                 sub_tasks = stream_state["subtasks"]
                             state_holder["sub_tasks"] = sub_tasks

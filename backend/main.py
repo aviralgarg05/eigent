@@ -4,6 +4,10 @@ import pathlib
 import signal
 import asyncio
 import atexit
+import time
+
+# Capture the earliest possible timestamp for module load measurement
+_module_load_start = time.perf_counter()
 
 # Add project root to Python path to import shared utils
 _project_root = pathlib.Path(__file__).parent.parent
@@ -129,5 +133,9 @@ def sync_cleanup():
 
 atexit.register(sync_cleanup)
 
-# Log successful initialization
-app_logger.info("Application initialization completed successfully")
+# Log successful initialization with module load timing
+_module_load_ms = (time.perf_counter() - _module_load_start) * 1000.0
+app_logger.info(
+    f"[PERF] Application initialization completed in {_module_load_ms:.2f}ms",
+    extra={"perf_operation": "module_initialization", "perf_duration_ms": round(_module_load_ms, 2)},
+)

@@ -118,6 +118,7 @@ export async function checkToolInstalled() {
 // }
 
 export async function startBackend(setPort?: (port: number) => void): Promise<any> {
+    const startupStartTime = Date.now();
     console.log('start fastapi')
     const uv_path = await getBinaryPath('uv')
     const backendPath = getBackendPath()
@@ -293,6 +294,7 @@ export async function startBackend(setPort?: (port: number) => void): Promise<an
         // to properly capture stdout/stderr and manage the process lifecycle
 
         log.info(`Backend process spawned with PID: ${node_process.pid}`);
+        const spawnTime = Date.now();
 
         setTimeout(() => {
             if (node_process.killed) {
@@ -359,7 +361,9 @@ export async function startBackend(setPort?: (port: number) => void): Promise<an
 
                 const req = http.get(healthUrl, { timeout: 1000 }, (res) => {
                     if (res.statusCode === 200) {
-                        log.info(`Backend health check passed after ${attempts} attempts`);
+                        const totalStartupMs = Date.now() - startupStartTime;
+                        const healthCheckMs = Date.now() - spawnTime;
+                        log.info(`[PERF] Backend startup completed in ${totalStartupMs}ms (spawn-to-ready: ${healthCheckMs}ms, health check attempts: ${attempts})`);
                         started = true;
                         clearTimeout(startTimeout);
                         if (healthCheckInterval) clearInterval(healthCheckInterval);

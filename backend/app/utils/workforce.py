@@ -26,6 +26,7 @@ from app.service.task import (
     get_task_lock,
 )
 from app.utils.single_agent_worker import SingleAgentWorker
+from app.utils.perf_timer import PerfTimer
 from utils import traceroot_wrapper as traceroot
 
 logger = traceroot.get_logger("workforce")
@@ -114,15 +115,16 @@ class Workforce(BaseWorkforce):
         logger.info(f"[DECOMPOSE] Workforce reset complete, state: {self._state.name}")
 
         logger.info(f"[DECOMPOSE] Calling handle_decompose_append_task")
-        subtasks = asyncio.run(
-            self.handle_decompose_append_task(
-                task, 
-                reset=False, 
-                coordinator_context=coordinator_context,
-                on_stream_batch=on_stream_batch, 
-                on_stream_text=on_stream_text
+        with PerfTimer("decompose_subtasks", task_id=task.id):
+            subtasks = asyncio.run(
+                self.handle_decompose_append_task(
+                    task, 
+                    reset=False, 
+                    coordinator_context=coordinator_context,
+                    on_stream_batch=on_stream_batch, 
+                    on_stream_text=on_stream_text
+                )
             )
-        )
         logger.info("=" * 80)
         logger.info(f"✅ [DECOMPOSE] Task decomposition COMPLETED", extra={
             "api_task_id": self.api_task_id,
@@ -145,7 +147,8 @@ class Workforce(BaseWorkforce):
 
         try:
             logger.info(f"[WF-LIFECYCLE] Calling base class start() method")
-            await self.start()
+            async with PerfTimer("workforce_execution", api_task_id=self.api_task_id):
+                await self.start()
             logger.info(f"[WF-LIFECYCLE] ✅ Base class start() method completed")
         except Exception as e:
             logger.error(f"[WF-LIFECYCLE] ❌ Error in workforce execution: {e}", extra={

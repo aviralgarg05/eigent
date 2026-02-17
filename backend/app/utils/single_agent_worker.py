@@ -5,6 +5,7 @@ from camel.tasks.task import Task, TaskState, is_task_result_insufficient
 from utils import traceroot_wrapper as traceroot
 
 from app.utils.agent import ListenChatAgent
+from app.utils.perf_timer import PerfTimer
 from camel.societies.workforce.prompts import PROCESS_TASK_PROMPT
 from colorama import Fore
 from camel.societies.workforce.utils import TaskResult
@@ -76,6 +77,8 @@ class SingleAgentWorker(BaseSingleAgentWorker):
 
         response_content = ""
         final_response = None
+        task_timer = PerfTimer("process_task", task_id=task.id)
+        task_timer.__enter__()
         try:
             dependency_tasks_info = self._get_dep_tasks_info(dependencies)
             prompt = PROCESS_TASK_PROMPT.format(
@@ -100,7 +103,8 @@ class SingleAgentWorker(BaseSingleAgentWorker):
                     "description of what was done and whether the task "
                     "succeeded or failed.",
                 )
-                response = await worker_agent.astep(enhanced_prompt)
+                with PerfTimer("agent_astep", task_id=task.id, mode="structured_handler"):
+                    response = await worker_agent.astep(enhanced_prompt)
 
                 # Handle streaming response
                 if isinstance(response, AsyncStreamingChatAgentResponse):
@@ -124,7 +128,8 @@ class SingleAgentWorker(BaseSingleAgentWorker):
                 )
             else:
                 # Use native structured output if supported
-                response = await worker_agent.astep(prompt, response_format=TaskResult)
+                with PerfTimer("agent_astep", task_id=task.id, mode="native_structured"):
+                    response = await worker_agent.astep(prompt, response_format=TaskResult)
 
                 # Handle streaming response for native output
                 if isinstance(response, AsyncStreamingChatAgentResponse):
@@ -186,6 +191,7 @@ class SingleAgentWorker(BaseSingleAgentWorker):
         finally:
             # Return agent to pool or let it be garbage collected
             await self._return_worker_agent(worker_agent)
+            task_timer.__exit__(None, None, None)
 
         # Populate additional_info with worker attempt details
         if task.additional_info is None:
@@ -206,6 +212,7 @@ class SingleAgentWorker(BaseSingleAgentWorker):
             "response_content": response_content[:50],
             "tool_calls": str(response_for_info.info.get("tool_calls", []) if response_for_info and hasattr(response_for_info, 'info') else [])[:50],
             "total_tokens": total_tokens,
+            "duration_ms": round(task_timer.duration_ms, 2),
         }
 
         # Store the worker attempt in additional_info
